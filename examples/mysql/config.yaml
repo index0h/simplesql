@@ -1,0 +1,3 @@
+dialect: mysql
+repositories:
+  ./UserRepository: repository_gen.go

@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS users (
+    id      SERIAL PRIMARY KEY,
+    name    TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS balances (
+    user_id INT NOT NULL REFERENCES users (id),
+    amount  INT NOT NULL DEFAULT 0
+);
