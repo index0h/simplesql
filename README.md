@@ -74,7 +74,7 @@ users, err := repo.FindAll(ctx, nil)
 id, err := repo.Create(ctx, "Alice", true)
 ```
 
-The generated constructor also accepts `*sql.Tx`, since both satisfy the `querier.Querier` interface.
+The same `cm` also drives transactions — see [Transactions](#transactions) below.
 
 ## SQL template syntax
 
@@ -214,13 +214,31 @@ All errors returned from the database are wrapped with `errors.WithStack` from `
 
 ## Transactions
 
-The generated constructor accepts `querier.Querier`, which is satisfied by both `*sql.DB` and `*sql.Tx`:
+The generated constructor takes a `*querier.ConnectionManager`, not a `*sql.DB`/`*sql.Tx` directly. Every generated
+method calls `cm.DB(ctx)` to get its `querier.Querier`, which resolves to whichever transaction (if any) `ctx`
+carries — so the same repository instance transparently works both inside and outside a transaction, with no need to
+construct a second instance around a `*sql.Tx`.
+
+Transactions are started through `cm.StartTransaction`, which commits if the callback returns `nil` and rolls back
+(returning the combined error) otherwise:
 
 ```go
-tx, _ := db.BeginTx(ctx, nil)
-repo := repo.NewUserRepository(tx)
-// all calls inside the transaction
+cm := querier.NewConnectionManager(db)
+repo := repo.NewUserRepository(cm)
+
+err := cm.StartTransaction(ctx, func(ctx context.Context) error {
+    id, err := repo.Create(ctx, "Alice", true)
+    if err != nil {
+        return err
+    }
+    _, err = repo.DeleteById(ctx, id)
+    return err // nil commits, non-nil rolls back
+})
 ```
+
+`StartTransaction` is reentrant: if `ctx` already carries a transaction (e.g. an outer `StartTransaction` call), a
+nested call runs its callback directly against that same transaction instead of opening a second one, so helper
+functions that themselves wrap calls in `StartTransaction` compose safely whether or not they're already inside one.
 
 ## Testing
 
