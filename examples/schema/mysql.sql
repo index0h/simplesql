@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS users (
+    id      INT AUTO_INCREMENT PRIMARY KEY,
+    name    VARCHAR(255) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS balances (
+    user_id INT NOT NULL,
+    amount  INT NOT NULL DEFAULT 0,
+    FOREIGN KEY (user_id) REFERENCES users (id)
+);
