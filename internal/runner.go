@@ -47,9 +47,10 @@ func (r *Runner) Run() error {
 	outputGroups := map[string][]entry{}
 
 	// cfg.Repositories is a map, so its iteration order is randomized; process keys in
-	// sorted order so that both the entries within one shared output file and the order
-	// output files are generated to stay identical across runs. Otherwise, regenerating
-	// an unchanged config could reorder structs/methods in the output file for no reason.
+	// sorted order so that both the entries within one shared output file, and the order
+	// in which output files are generated, stay identical across runs. Otherwise,
+	// regenerating an unchanged config could reorder structs/methods in the output file
+	// for no reason.
 	keys := make([]string, 0, len(r.cfg.Repositories))
 	for key := range r.cfg.Repositories {
 		keys = append(keys, key)

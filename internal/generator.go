@@ -166,14 +166,14 @@ func (g *generatorImpl) extractContext(params []Param) (ctxExpr string, sqlParam
 // buildImportBlock returns a sorted, grouped import block string for use in the header template.
 // Stdlib imports come first, then a blank line, then external imports.
 func (g *generatorImpl) buildImportBlock(requests []*Request, needsStrconv bool) string {
-	set := map[string]struct{}{
-		"context":                              {},
-		"strings":                              {},
-		"github.com/cockroachdb/errors":        {},
-		"github.com/index0h/simplesql/querier": {},
+	set := map[Import]struct{}{
+		{Path: "context"}:                              {},
+		{Path: "strings"}:                              {},
+		{Path: "github.com/cockroachdb/errors"}:        {},
+		{Path: "github.com/index0h/simplesql/querier"}: {},
 	}
 	if needsStrconv {
-		set["strconv"] = struct{}{}
+		set[Import{Path: "strconv"}] = struct{}{}
 	}
 	for _, req := range requests {
 		for _, imp := range req.Interface.Imports {
@@ -181,28 +181,37 @@ func (g *generatorImpl) buildImportBlock(requests []*Request, needsStrconv bool)
 		}
 	}
 
-	var std, ext []string
+	var std, ext []Import
 	for imp := range set {
-		if g.isStdlib(imp) {
+		if g.isStdlib(imp.Path) {
 			std = append(std, imp)
 		} else {
 			ext = append(ext, imp)
 		}
 	}
-	sort.Strings(std)
-	sort.Strings(ext)
+	sort.Slice(std, func(i, j int) bool { return std[i].Path < std[j].Path })
+	sort.Slice(ext, func(i, j int) bool { return ext[i].Path < ext[j].Path })
 
 	var sb strings.Builder
 	for _, imp := range std {
-		sb.WriteString(fmt.Sprintf("\t%q\n", imp))
+		sb.WriteString(formatImport(imp))
 	}
 	if len(std) > 0 && len(ext) > 0 {
 		sb.WriteString("\n")
 	}
 	for _, imp := range ext {
-		sb.WriteString(fmt.Sprintf("\t%q\n", imp))
+		sb.WriteString(formatImport(imp))
 	}
 	return sb.String()
+}
+
+// formatImport renders one import line, preserving its alias if any — "_"/"." for
+// blank/dot imports render exactly as such, matching normal Go import syntax.
+func formatImport(imp Import) string {
+	if imp.Alias == "" {
+		return fmt.Sprintf("\t%q\n", imp.Path)
+	}
+	return fmt.Sprintf("\t%s %q\n", imp.Alias, imp.Path)
 }
 
 // isStdlib reports whether the import path is a standard library package.

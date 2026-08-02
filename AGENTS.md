@@ -128,11 +128,13 @@ reflection before this, it's only the parser/template that were pointer-only. `R
 counterpart — it's pointer-only, since there'd be no sensible zero value to return for "no row found".
 
 Any other param or return signature is a parse error, not a silent fallback — e.g. a non-pointer single return
-(`(User, error)`), a second return value that isn't `error`, or a param/return type `buildReturn`/`buildParams` can't
-stringify (`interface{}`, `...T`, func/channel/generic types — the `any` alias is fine, it's just an identifier). This
-exists specifically so a bad signature fails at generation time with a clear message instead of producing code that
-doesn't actually implement the source interface, or fails downstream with a cryptic Go compiler error. See
-`internal/parser_test.go`'s `TestParseInterface_Rejects*`/`TestParseInterface_*SliceReturn*` tests.
+(`(User, error)`), a second return value that isn't `error`, a param/return type `buildReturn`/`buildParams` can't
+stringify (`interface{}`, `...T`, func/channel/generic types — the `any` alias is fine, it's just an identifier), or
+an unnamed parameter (Go allows `Find(int)`, but an unnamed param can't be bound via `:name` and would otherwise
+produce an invalid generated signature). This exists specifically so a bad signature fails at generation time with a
+clear message instead of producing code that doesn't actually implement the source interface, or fails downstream
+with a cryptic Go compiler error. See `internal/parser_test.go`'s
+`TestParseInterface_Rejects*`/`TestParseInterface_*SliceReturn*` tests.
 
 ## Config file format
 
@@ -155,11 +157,27 @@ processes repository keys in sorted order so the generated file's struct/method 
 - If the first parameter is `context.Context` it is forwarded to `QueryContext`/`ExecContext`; otherwise
   `context.Background()` is used
 - All DB errors are wrapped with `errors.WithStack` from `github.com/cockroachdb/errors`
-- Result structs are scanned by `db` struct tag via `querier.FieldPointers`
+- `sql.Rows.Close()`'s error is never silently discarded: `ReturnSingle` methods use a named `_err` return (all
+  generated identifiers are `_`-prefixed to avoid colliding with anything meaningful — a named return is no
+  exception) with a deferred `_err = errors.Join(_err, _rows.Close())`, and `querier.ScanRows` (used by `ReturnSlice`
+  methods) does the same internally with its own `err` — a `Close()` failure surfaces (joined onto any earlier
+  error) instead of vanishing via a bare `defer rows.Close()`. Note this is `errors.Join` (real multi-error,
+  `Unwrap() []error`), not `errors.CombineErrors` — the latter attaches the second error as a "secondary" that's
+  invisible to both `Error()` and `errors.Is`/`As`, which silently defeats the whole point of not discarding it.
+- Result structs are scanned by `db` struct tag via `querier.FieldPointers`, which validates `dest` (non-nil pointer
+  to struct) and returns an error rather than panicking on bad input; `querier.ScanRows` does the same for its
+  `*[]T`/`*[]*T` destination
+- A `ReturnSingle` method (`selectOneTmpl`) checks `_rows.Err()` when `_rows.Next()` returns false, so a genuine
+  rows-iteration error isn't mistaken for "no row found" and silently turned into `(nil, nil)`
+- If a param/return type is referenced through an aliased import (`alias.Type`), `parser.go`'s `usedImports` preserves
+  that alias into the generated file's import block (`Import{Path, Alias}` in `types.go`) — since the alias generally
+  won't match the imported package's own default name, dropping it would make the generated file fail to compile
 - Output is passed through `go/format` so it is always gofmt-clean
 
 `ConnectionManager.StartTransaction` (`querier/connection_manager.go`) commits on a `nil` callback return, rolls back
-and returns the combined error otherwise, is reentrant (a nested call reuses ctx's existing `*sql.Tx` instead of
+and returns `errors.Join(cbErr, tx.Rollback())` otherwise (so a `Rollback()` failure stays discoverable alongside the
+callback error, not hidden behind it), is reentrant (a nested call reuses ctx's existing `*sql.Tx` instead of
 starting a second one — only the outermost call owns `tx` and its commit/rollback), and rolls back before
 repropagating if the callback panics, so a panicking callback can't leave the transaction open. See
-`querier/connection_manager_test.go` for the sqlmock-backed tests covering each of these paths.
+`querier/connection_manager_test.go` for the sqlmock-backed tests covering each of these paths, including the
+two-errors-at-once case that distinguishes `errors.Join` from `errors.CombineErrors`.

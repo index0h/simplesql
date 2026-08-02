@@ -20,20 +20,30 @@ func New{{.InterfaceName}}(cm *querier.ConnectionManager) *{{.StructName}} {
 }
 `))
 
+// selectOneTmpl names its error return so the deferred close can join _rows.Close()'s
+// error into whatever the method is already returning, instead of discarding it.
+// errors.Join (not CombineErrors) matters here: CombineErrors attaches the second error
+// as a "secondary" that's invisible to both Error() and errors.Is/As — Join gives a real
+// multi-error via Unwrap() []error, so the close error is actually observable.
 var selectOneTmpl = template.Must(template.New("selectOne").Funcs(helperFuncs).Parse(`
-func (s *{{.StructName}}) {{.MethodName}}({{paramList .Params}}) (*{{.ReturnType}}, error) {
+func (s *{{.StructName}}) {{.MethodName}}({{paramList .Params}}) (_ *{{.ReturnType}}, _err error) {
 {{.QueryBody}}
 	_db := s.cm.DB({{.ContextExpr}})
 	_rows, _err := _db.QueryContext({{.ContextExpr}}, _query, _args...)
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
-	defer _rows.Close()
+	defer func() {
+		_err = errors.Join(_err, _rows.Close())
+	}()
 	_cols, _err := _rows.Columns()
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
 	if !_rows.Next() {
+		if _err := _rows.Err(); _err != nil {
+			return nil, errors.WithStack(_err)
+		}
 		return nil, nil
 	}
 	var _dest {{.ReturnType}}

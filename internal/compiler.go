@@ -218,14 +218,18 @@ func (c *bodyCompiler) emitDirect(paramName string) error {
 	if !ok {
 		return errors.WithStack(errors.Newf("unknown param %q in direct substitution", paramName))
 	}
-	switch {
-	case p.Type == "*string":
+	switch p.Type {
+	case "*string":
 		c.out.WriteString(fmt.Sprintf("\tif %s != nil { _sb.WriteString(*%s) }\n", paramName, paramName))
-	case p.Type == "string":
+	case "string":
 		c.out.WriteString(fmt.Sprintf("\t_sb.WriteString(%s)\n", paramName))
 	default:
-		c.needsStrconv = true
-		c.out.WriteString(fmt.Sprintf("\t_sb.WriteString(strconv.FormatInt(int64(%s), 10))\n", paramName))
+		// Only string/*string are documented as supported for {{param}}. A silent
+		// int64(...) fallback here would (a) generate uncompilable code for anything
+		// that isn't numeric (bool, time.Time, structs, ...) and (b) quietly accept a
+		// wider surface than what's documented, for types it happens to compile for.
+		return errors.WithStack(errors.Newf(
+			"unsupported type %q for direct substitution {{%s}}: must be string or *string", p.Type, paramName))
 	}
 	return nil
 }

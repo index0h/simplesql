@@ -166,7 +166,37 @@ type Repo interface {
 	p := newTestParser()
 	iface, err := p.ParseInterface(dir, "Repo")
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"context", "some/blank/import"}, iface.Imports)
+	require.ElementsMatch(t, []Import{
+		{Path: "context"},
+		{Path: "some/blank/import", Alias: "_"},
+	}, iface.Imports)
+}
+
+// TestParseInterface_PreservesImportAlias guards against a regression where an aliased
+// import's alias was dropped, leaving only the bare path — since the alias generally
+// doesn't match the imported package's own default name, the generated file would then
+// fail to compile (or, worse, silently resolve to some other unrelated default-named
+// package) wherever the interface's types reference that alias.
+func TestParseInterface_PreservesImportAlias(t *testing.T) {
+	src := `package testpkg
+
+import (
+	"context"
+	aliased "some/pkg/with/a/different/name"
+)
+
+type Repo interface {
+	// @sql SELECT * FROM t WHERE id = :id
+	Find(ctx context.Context, id aliased.ID) (*aliased.T, error)
+}
+`
+	dir := t.TempDir()
+	writeFile(t, dir, "repo.go", src)
+
+	p := newTestParser()
+	iface, err := p.ParseInterface(dir, "Repo")
+	require.NoError(t, err)
+	require.Contains(t, iface.Imports, Import{Path: "some/pkg/with/a/different/name", Alias: "aliased"})
 }
 
 func TestParseInterface_SkipsNoSQL(t *testing.T) {
@@ -442,6 +472,26 @@ type Repo interface {
 	_, err := p.ParseInterface(dir, "Repo")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported parameter type")
+}
+
+// TestParseInterface_RejectsUnnamedParam guards against a regression where an unnamed
+// parameter (Go allows "Find(int, string)") was silently accepted with an empty Param
+// name — which can't be bound via :name and produces an invalid generated signature.
+func TestParseInterface_RejectsUnnamedParam(t *testing.T) {
+	src := `package testpkg
+type T struct{}
+type Repo interface {
+	// @sql SELECT * FROM t WHERE id = :id
+	Find(int) (*T, error)
+}
+`
+	dir := t.TempDir()
+	writeFile(t, dir, "repo.go", src)
+
+	p := newTestParser()
+	_, err := p.ParseInterface(dir, "Repo")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "every parameter must be named")
 }
 
 func TestParseInterface_RejectsUnsupportedReturnType(t *testing.T) {

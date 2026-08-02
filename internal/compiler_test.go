@@ -125,6 +125,24 @@ func TestMySQL_DirectSubstitution(t *testing.T) {
 	assertContains(t, body, `_sb.WriteString(col)`)
 }
 
+// TestDirectSubstitution_RejectsNonStringType guards against a regression where a
+// direct-substitution param of any type other than string/*string silently fell back to
+// strconv.FormatInt(int64(x), 10) — generating uncompilable code for anything non-numeric
+// (bool, time.Time, structs, ...) despite the documented contract being string-only.
+func TestDirectSubstitution_RejectsNonStringType(t *testing.T) {
+	m := &Method{
+		Name:       "Test",
+		SQL:        "SELECT {{flag}} FROM users",
+		QueryKind:  QuerySelect,
+		Params:     []Param{{Name: "flag", Type: "bool"}},
+		ReturnKind: ReturnSlice,
+		ReturnType: "Row",
+	}
+	_, _, err := NewCompiler(DialectMySQL).CompileBody(m)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "must be string or *string")
+}
+
 func TestMySQL_Insert(t *testing.T) {
 	body := compile(t,
 		"INSERT INTO `users` (`name`, `enabled`) VALUES (:name, :enabled)",
@@ -467,6 +485,11 @@ func TestGenerate_MySQL_FullInterface(t *testing.T) {
 		"if enabled != nil {",
 		"LastInsertId()",
 		"RowsAffected()",
+		// FindById (ReturnSingle) must join _rows.Close()'s error instead of discarding it.
+		"(_ *User, _err error) {",
+		"_err = errors.Join(_err, _rows.Close())",
+		// ...and must not treat a rows-iteration error as "not found".
+		"if _err := _rows.Err(); _err != nil {",
 	)
 }
 

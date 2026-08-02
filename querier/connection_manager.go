@@ -47,22 +47,26 @@ func (cm *ConnectionManager) StartTransaction(ctx context.Context, cb func(ctx c
 		return errors.Wrap(err, "begin transaction")
 	}
 
-	err = runInTransaction(ctx, tx, cb)
+	err = func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				// Best-effort cleanup: intentionally not joined into the repanic value,
+				// since that would replace the original panic value/type with an error,
+				// breaking recover()-based callers (e.g. testify's PanicsWithValue) that
+				// expect it verbatim.
+				_ = tx.Rollback()
+				panic(r)
+			}
+		}()
+		return cb(context.WithValue(ctx, txContextKey{}, tx))
+	}()
 	if err != nil {
-		return errors.CombineErrors(err, tx.Rollback())
+		// errors.Join (not CombineErrors) matters here: CombineErrors attaches the
+		// second error as a "secondary" that's invisible to both Error() and
+		// errors.Is/As — Join gives a real multi-error via Unwrap() []error, so a
+		// rollback failure alongside the callback error is actually observable.
+		return errors.Join(err, tx.Rollback())
 	}
 
 	return errors.WithStack(tx.Commit())
-}
-
-// runInTransaction calls cb with ctx carrying tx, rolling back tx and repropagating
-// the panic if cb panics.
-func runInTransaction(ctx context.Context, tx *sql.Tx, cb func(ctx context.Context) error) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			_ = tx.Rollback()
-			panic(r)
-		}
-	}()
-	return cb(context.WithValue(ctx, txContextKey{}, tx))
 }

@@ -9,20 +9,38 @@ import (
 )
 
 // ScanRows scans all rows from *sql.Rows into dest (*[]*T or *[]T).
-func ScanRows(rows *sql.Rows, dest any) error {
-	defer rows.Close()
+func ScanRows(rows *sql.Rows, dest any) (err error) {
+	// rows.Close() can itself return a driver/connection error; join it into whatever
+	// this call is already returning instead of discarding it via a bare defer.
+	// errors.Join (not CombineErrors) matters here: CombineErrors attaches the second
+	// error as a "secondary" that's invisible to both Error() and errors.Is/As — Join
+	// gives a real multi-error via Unwrap() []error, so the close error is actually
+	// observable, not just nominally present.
+	defer func() {
+		err = errors.Join(err, rows.Close())
+	}()
 
-	cols, err := rows.Columns()
-	if err != nil {
-		return errors.WithStack(err)
+	v := reflect.ValueOf(dest)
+	if v.Kind() != reflect.Ptr || v.IsNil() {
+		return errors.WithStack(errors.New("dest must be a non-nil pointer to a slice"))
 	}
-
-	sliceVal := reflect.ValueOf(dest).Elem()
+	sliceVal := v.Elem()
+	if sliceVal.Kind() != reflect.Slice {
+		return errors.WithStack(errors.New("dest must be a non-nil pointer to a slice"))
+	}
 	elemType := sliceVal.Type().Elem()
 	isPtr := elemType.Kind() == reflect.Ptr
 	structType := elemType
 	if isPtr {
 		structType = elemType.Elem()
+	}
+	if structType.Kind() != reflect.Struct {
+		return errors.WithStack(errors.Newf("dest slice element must be a struct or *struct, got %s", elemType))
+	}
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return errors.WithStack(err)
 	}
 
 	// Column list and struct type are fixed for the whole result set, so the tag index

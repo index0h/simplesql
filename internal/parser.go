@@ -120,7 +120,7 @@ func (p *parserImpl) buildInterface(pkgName, ifaceName string, iface *ast.Interf
 // than through a package-qualified identifier). Copying every import in the source file
 // regardless of use would make the generated file fail to compile as soon as that file
 // contains any import the interface's own types don't need.
-func (p *parserImpl) usedImports(file *ast.File, iface *Interface) []string {
+func (p *parserImpl) usedImports(file *ast.File, iface *Interface) []Import {
 	used := map[string]struct{}{}
 	addType := func(t string) {
 		t = strings.TrimLeft(t, "*[]")
@@ -135,19 +135,22 @@ func (p *parserImpl) usedImports(file *ast.File, iface *Interface) []string {
 		addType(m.ReturnType)
 	}
 
-	var imports []string
+	var imports []Import
 	for _, imp := range file.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
 		switch {
 		case imp.Name != nil && (imp.Name.Name == "_" || imp.Name.Name == "."):
-			imports = append(imports, path)
+			imports = append(imports, Import{Path: path, Alias: imp.Name.Name})
 		case imp.Name != nil:
+			// Preserve the alias: a type referenced as "alias.Type" only compiles in the
+			// generated file if the import is re-emitted with that same alias, since it
+			// won't generally match the imported package's own default name.
 			if _, ok := used[imp.Name.Name]; ok {
-				imports = append(imports, path)
+				imports = append(imports, Import{Path: path, Alias: imp.Name.Name})
 			}
 		default:
 			if _, ok := used[defaultImportName(path)]; ok {
-				imports = append(imports, path)
+				imports = append(imports, Import{Path: path})
 			}
 		}
 	}
@@ -239,11 +242,12 @@ func (p *parserImpl) buildParams(fields *ast.FieldList) ([]Param, error) {
 				"unsupported parameter type %q: interface{}/any-underlying, variadic, func, channel, and generic "+
 					"types are not supported", paramFieldLabel(field)))
 		}
-		isPtr := strings.HasPrefix(typeStr, "*")
 		if len(field.Names) == 0 {
-			params = append(params, Param{Type: typeStr, IsPtr: isPtr})
-			continue
+			return nil, errors.WithStack(errors.Newf(
+				"unsupported parameter of type %q: every parameter must be named (an unnamed parameter can't be "+
+					"bound via :name, and produces an invalid generated method signature)", typeStr))
 		}
+		isPtr := strings.HasPrefix(typeStr, "*")
 		for _, name := range field.Names {
 			params = append(params, Param{
 				Name:  name.Name,

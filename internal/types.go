@@ -39,10 +39,18 @@ type Method struct {
 	ReturnIsPtr bool   // for ReturnSlice: true for []*T, false for []T. Always true for ReturnSingle (*T is the only supported shape).
 }
 
+// Import is a Go import referenced by a parsed interface's param/return types: a path with
+// an optional local name — "" for a normal (unaliased) import, "_" for blank, "." for dot,
+// or any other identifier for an explicit alias.
+type Import struct {
+	Path  string
+	Alias string
+}
+
 // Interface holds the parsed interface.
 type Interface struct {
 	Name        string
 	PackageName string
-	Imports     []string // import paths referenced by param/return types
+	Imports     []Import
 	Methods     []Method
 }

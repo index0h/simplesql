@@ -62,6 +62,27 @@ func TestConnectionManager_StartTransaction_RollsBackOnCallbackError(t *testing.
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestConnectionManager_StartTransaction_JoinsRollbackErrorWithCallbackError covers the
+// case that actually distinguishes errors.Join from errors.CombineErrors: an existing
+// (callback) error already set, with a rollback error on top. CombineErrors would have
+// silently dropped the rollback error here (it attaches it as a "secondary" that
+// Error()/errors.Is never surface); Join must not.
+func TestConnectionManager_StartTransaction_JoinsRollbackErrorWithCallbackError(t *testing.T) {
+	cm, mock := newMockConnectionManager(t)
+
+	mock.ExpectBegin()
+	rollbackErr := errors.New("rollback failed")
+	mock.ExpectRollback().WillReturnError(rollbackErr)
+
+	boom := errors.New("boom")
+	err := cm.StartTransaction(context.Background(), func(ctx context.Context) error {
+		return boom
+	})
+	require.ErrorIs(t, err, boom, "callback error must be discoverable")
+	require.ErrorIs(t, err, rollbackErr, "rollback error must be discoverable even alongside the callback error")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // TestConnectionManager_StartTransaction_RollsBackOnPanic verifies that a panicking
 // callback still rolls back the transaction (instead of leaving it open) and that the
 // panic itself is repropagated to the caller rather than swallowed.
