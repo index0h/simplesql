@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI coding agents when working with code in this repository.
 
 ## Project
 
@@ -114,19 +114,25 @@ etc.
 
 | Signature       | Query kind    | Behavior                |
 |-----------------|---------------|-------------------------|
-| `(*T, error)`   | SELECT        | `nil, nil` if not found |
-| `([]*T, error)` | SELECT        | empty slice if none     |
-| `(int, error)`  | INSERT        | last insert ID          |
-| `(int, error)`  | UPDATE/DELETE | rows affected           |
-| `(error)`       | any           | error only              |
-| `()`            | any           | nothing                 |
+| `(*T, error)`                | SELECT        | `nil, nil` if not found |
+| `([]*T, error)` / `([]T, error)` | SELECT     | empty slice if none     |
+| `(int, error)`                | INSERT        | last insert ID          |
+| `(int, error)`                | UPDATE/DELETE | rows affected           |
+| `(error)`                     | any           | error only              |
+| `()`                          | any           | nothing                 |
 
-Any other param or return signature is a parse error, not a silent fallback — e.g. a non-pointer single/slice return
-(`(User, error)`, `([]User, error)`), a second return value that isn't `error`, or a param/return type `buildReturn`/
-`buildParams` can't stringify (`interface{}`, `...T`, func/channel/generic types — the `any` alias is fine, it's just
-an identifier). This exists specifically so a bad signature fails at generation time with a clear message instead of
-producing code that doesn't actually implement the source interface, or fails downstream with a cryptic Go compiler
-error. See `internal/parser_test.go`'s `TestParseInterface_Rejects*` tests.
+`ReturnSlice` accepts both a slice of pointers (`[]*T`) and a slice of values (`[]T`) — `Method.ReturnIsPtr` (set in
+`parser.go`'s `buildReturn`) records which one the interface declared, and `selectManyTmpl` in `templates.go` renders
+`[]*T`/`[]T` accordingly (`{{if .ReturnIsPtr}}*{{end}}`); `querier.ScanRows` already handled both variants via
+reflection before this, it's only the parser/template that were pointer-only. `ReturnSingle` (`*T`) has no such value
+counterpart — it's pointer-only, since there'd be no sensible zero value to return for "no row found".
+
+Any other param or return signature is a parse error, not a silent fallback — e.g. a non-pointer single return
+(`(User, error)`), a second return value that isn't `error`, or a param/return type `buildReturn`/`buildParams` can't
+stringify (`interface{}`, `...T`, func/channel/generic types — the `any` alias is fine, it's just an identifier). This
+exists specifically so a bad signature fails at generation time with a clear message instead of producing code that
+doesn't actually implement the source interface, or fails downstream with a cryptic Go compiler error. See
+`internal/parser_test.go`'s `TestParseInterface_Rejects*`/`TestParseInterface_*SliceReturn*` tests.
 
 ## Config file format
 
@@ -143,9 +149,17 @@ processes repository keys in sorted order so the generated file's struct/method 
 
 ## Generated code details
 
-- Accepts `querier.Querier` (satisfied by `*sql.DB` and `*sql.Tx`) in the constructor
+- Accepts `*querier.ConnectionManager` in the constructor. Every method calls `cm.DB(ctx)` for its `querier.Querier`,
+  which resolves to whichever `*sql.Tx` (if any) `ctx` carries, else the wrapped `*sql.DB` — so one repository
+  instance works both inside and outside a transaction
 - If the first parameter is `context.Context` it is forwarded to `QueryContext`/`ExecContext`; otherwise
   `context.Background()` is used
 - All DB errors are wrapped with `errors.WithStack` from `github.com/cockroachdb/errors`
 - Result structs are scanned by `db` struct tag via `querier.FieldPointers`
 - Output is passed through `go/format` so it is always gofmt-clean
+
+`ConnectionManager.StartTransaction` (`querier/connection_manager.go`) commits on a `nil` callback return, rolls back
+and returns the combined error otherwise, is reentrant (a nested call reuses ctx's existing `*sql.Tx` instead of
+starting a second one — only the outermost call owns `tx` and its commit/rollback), and rolls back before
+repropagating if the callback panics, so a panicking callback can't leave the transaction open. See
+`querier/connection_manager_test.go` for the sqlmock-backed tests covering each of these paths.

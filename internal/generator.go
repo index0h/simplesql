@@ -107,6 +107,7 @@ func (g *generatorImpl) renderMethod(buf *bytes.Buffer, structName string, m Met
 		Params:      m.Params,
 		ReturnKind:  m.ReturnKind,
 		ReturnType:  m.ReturnType,
+		ReturnIsPtr: m.ReturnIsPtr,
 		QueryBody:   queryBody,
 		ContextExpr: ctxExpr,
 	}
@@ -141,6 +142,7 @@ type methodData struct {
 	Params      []Param
 	ReturnKind  ReturnKind
 	ReturnType  string
+	ReturnIsPtr bool // for ReturnSlice: true renders []*T, false renders []T
 	QueryBody   string
 	ContextExpr string // param name (e.g. "ctx") or "context.Background()"
 }

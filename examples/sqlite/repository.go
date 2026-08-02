@@ -39,6 +39,11 @@ type UserRepository interface {
 	// @sql SELECT {{cols}} FROM users ORDER BY id
 	SelectColumns(ctx context.Context, cols string) ([]*User, error)
 
+	// FindAllValues demonstrates the ([]T, error) return shape (a slice of values, as
+	// opposed to FindAll's []*User) — both are supported ReturnSlice variants.
+	// @sql SELECT * FROM users ORDER BY id
+	FindAllValues(ctx context.Context) ([]User, error)
+
 	// Create inserts a user and returns the last insert id.
 	// @sql INSERT INTO users (name, enabled) VALUES (:name, :enabled)
 	Create(ctx context.Context, name string, enabled bool) (int, error)

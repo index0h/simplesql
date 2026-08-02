@@ -124,15 +124,27 @@ FindAll(name string, enabled *bool) ([]*User, error)
 | Method signature | Query | Behavior |
 |-----------------|-------|----------|
 | `(*T, error)` | SELECT | returns `nil, nil` when no row is found |
-| `([]*T, error)` | SELECT | returns empty slice when no rows found |
+| `([]*T, error)` or `([]T, error)` | SELECT | returns empty slice when no rows found |
 | `(int, error)` | INSERT | returns last insert ID |
 | `(int, error)` | UPDATE / DELETE | returns rows affected |
 | `(error)` | any | executes and returns error |
 | `()` | any | fire and forget |
 
-Any other signature (a bare, non-pointer return like `(User, error)`; a second return value that isn't `error`; a
-param or return type simplesql can't express, like `interface{}`) is rejected at generation time with a clear error,
-rather than generating code that silently doesn't match the interface.
+A slice return can be either a slice of pointers or a slice of values — pick whichever fits; both are scanned the
+same way:
+
+```go
+// @sql SELECT * FROM users
+FindAllPointers(ctx context.Context) ([]*User, error)
+
+// @sql SELECT * FROM users
+FindAllValues(ctx context.Context) ([]User, error)
+```
+
+Any other signature (a bare, non-pointer single return like `(User, error)` — unlike slices, there's no value
+counterpart for the single-row case, since there'd be no sensible zero value for "no row found"; a second return
+value that isn't `error`; a param or return type simplesql can't express, like `interface{}`) is rejected at
+generation time with a clear error, rather than generating code that silently doesn't match the interface.
 
 On Postgres, `(int, error)` on an `INSERT` works by appending `RETURNING id` to the query and reading it back with
 `QueryRowContext` + `Scan` — Postgres has no `LastInsertId()` equivalent. This assumes the table's primary key column
@@ -239,6 +251,9 @@ err := cm.StartTransaction(ctx, func(ctx context.Context) error {
 `StartTransaction` is reentrant: if `ctx` already carries a transaction (e.g. an outer `StartTransaction` call), a
 nested call runs its callback directly against that same transaction instead of opening a second one, so helper
 functions that themselves wrap calls in `StartTransaction` compose safely whether or not they're already inside one.
+
+If the callback panics, `StartTransaction` rolls back the transaction before repropagating the panic — a panicking
+callback never leaves the transaction open.
 
 ## Testing
 

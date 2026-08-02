@@ -315,7 +315,10 @@ type Repo interface {
 	require.Contains(t, err.Error(), "unsupported return type")
 }
 
-func TestParseInterface_RejectsNonPointerSliceReturn(t *testing.T) {
+// TestParseInterface_AcceptsValueSliceReturn confirms ([]T, error) (a slice of values,
+// as opposed to []*T) is a supported ReturnSlice shape, with ReturnIsPtr set to false so
+// the generator renders []T instead of []*T.
+func TestParseInterface_AcceptsValueSliceReturn(t *testing.T) {
 	src := `package testpkg
 type T struct{}
 type Repo interface {
@@ -327,9 +330,34 @@ type Repo interface {
 	writeFile(t, dir, "repo.go", src)
 
 	p := newTestParser()
-	_, err := p.ParseInterface(dir, "Repo")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "unsupported return type")
+	iface, err := p.ParseInterface(dir, "Repo")
+	require.NoError(t, err)
+	require.Len(t, iface.Methods, 1)
+	require.Equal(t, ReturnSlice, iface.Methods[0].ReturnKind)
+	require.Equal(t, "T", iface.Methods[0].ReturnType)
+	require.False(t, iface.Methods[0].ReturnIsPtr)
+}
+
+// TestParseInterface_PointerSliceReturnSetsReturnIsPtr confirms ([]*T, error) sets
+// ReturnIsPtr to true, so the generator renders []*T instead of []T.
+func TestParseInterface_PointerSliceReturnSetsReturnIsPtr(t *testing.T) {
+	src := `package testpkg
+type T struct{}
+type Repo interface {
+	// @sql SELECT * FROM t
+	Find() ([]*T, error)
+}
+`
+	dir := t.TempDir()
+	writeFile(t, dir, "repo.go", src)
+
+	p := newTestParser()
+	iface, err := p.ParseInterface(dir, "Repo")
+	require.NoError(t, err)
+	require.Len(t, iface.Methods, 1)
+	require.Equal(t, ReturnSlice, iface.Methods[0].ReturnKind)
+	require.Equal(t, "T", iface.Methods[0].ReturnType)
+	require.True(t, iface.Methods[0].ReturnIsPtr)
 }
 
 func TestParseInterface_RejectsSecondReturnNotError(t *testing.T) {

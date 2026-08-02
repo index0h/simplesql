@@ -104,6 +104,25 @@ func (s *userRepositoryImpl) SelectColumns(ctx context.Context, cols string) ([]
 	return _result, nil
 }
 
+func (s *userRepositoryImpl) FindAllValues(ctx context.Context) ([]User, error) {
+	var _sb strings.Builder
+	var _args []any
+	_sb.WriteString("SELECT * FROM users ORDER BY id")
+	_query := _sb.String()
+
+	_db := s.cm.DB(ctx)
+	_rows, _err := _db.QueryContext(ctx, _query, _args...)
+	if _err != nil {
+		return nil, errors.WithStack(_err)
+	}
+	var _result []User
+	_err = querier.ScanRows(_rows, &_result)
+	if _err != nil {
+		return nil, errors.WithStack(_err)
+	}
+	return _result, nil
+}
+
 func (s *userRepositoryImpl) Create(ctx context.Context, name string, enabled bool) (int, error) {
 	var _sb strings.Builder
 	var _args []any

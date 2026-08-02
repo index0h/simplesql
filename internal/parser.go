@@ -95,18 +95,19 @@ func (p *parserImpl) buildInterface(pkgName, ifaceName string, iface *ast.Interf
 			return nil, errors.Wrapf(err, "method %s params", name)
 		}
 
-		retKind, retType, err := p.buildReturn(funcType.Results)
+		retKind, retType, retIsPtr, err := p.buildReturn(funcType.Results)
 		if err != nil {
 			return nil, errors.Wrapf(err, "method %s return", name)
 		}
 
 		result.Methods = append(result.Methods, Method{
-			Name:       name,
-			SQL:        sql,
-			QueryKind:  kind,
-			Params:     params,
-			ReturnKind: retKind,
-			ReturnType: retType,
+			Name:        name,
+			SQL:         sql,
+			QueryKind:   kind,
+			Params:      params,
+			ReturnKind:  retKind,
+			ReturnType:  retType,
+			ReturnIsPtr: retIsPtr,
 		})
 	}
 
@@ -268,21 +269,23 @@ func paramFieldLabel(field *ast.Field) string {
 }
 
 // buildReturn maps a method's return signature to a ReturnKind. Only the shapes documented
-// in the return-type table are accepted ((*T, error), ([]*T, error), (int, error), error, or
-// no return values); anything else is rejected rather than silently coerced, since the
-// generator always renders the return type it decides on (e.g. always "*T" for ReturnSingle)
-// regardless of what the source interface actually declared, and a mismatch there would only
-// surface later as a confusing compile error where the struct is assigned to the interface.
-func (p *parserImpl) buildReturn(fields *ast.FieldList) (ReturnKind, string, error) {
+// in the return-type table are accepted ((*T, error), ([]*T, error), ([]T, error), (int, error),
+// error, or no return values); anything else is rejected rather than silently coerced, since
+// the generator always renders the return type it decides on (e.g. always "*T" for
+// ReturnSingle) regardless of what the source interface actually declared, and a mismatch
+// there would only surface later as a confusing compile error where the struct is assigned to
+// the interface. The returned bool is only meaningful for ReturnSlice (true for []*T, false
+// for []T); ReturnSingle is always pointer (*T is the only supported shape there).
+func (p *parserImpl) buildReturn(fields *ast.FieldList) (ReturnKind, string, bool, error) {
 	if fields == nil || len(fields.List) == 0 {
-		return ReturnNothing, "", nil
+		return ReturnNothing, "", false, nil
 	}
 
 	types := make([]string, 0, len(fields.List))
 	for i, f := range fields.List {
 		t := p.exprToString(f.Type)
 		if t == "" {
-			return "", "", errors.WithStack(errors.Newf(
+			return "", "", false, errors.WithStack(errors.Newf(
 				"unsupported return type at position %d: interface{}/any-underlying, func, channel, and generic "+
 					"types are not supported", i+1))
 		}
@@ -292,31 +295,33 @@ func (p *parserImpl) buildReturn(fields *ast.FieldList) (ReturnKind, string, err
 	switch len(types) {
 	case 1:
 		if types[0] == "error" {
-			return ReturnError, "", nil
+			return ReturnError, "", false, nil
 		}
-		return "", "", errors.WithStack(errors.Newf(
+		return "", "", false, errors.WithStack(errors.Newf(
 			"unsupported return type %q: a single return value must be error", types[0]))
 
 	case 2:
 		if types[1] != "error" {
-			return "", "", errors.WithStack(errors.Newf(
+			return "", "", false, errors.WithStack(errors.Newf(
 				"unsupported return signature (%s, %s): second return value must be error", types[0], types[1]))
 		}
 		t := types[0]
 		switch {
 		case t == "int":
-			return ReturnRowsOrID, "int", nil
+			return ReturnRowsOrID, "int", false, nil
 		case strings.HasPrefix(t, "[]*"):
-			return ReturnSlice, strings.TrimPrefix(t, "[]*"), nil
+			return ReturnSlice, strings.TrimPrefix(t, "[]*"), true, nil
+		case strings.HasPrefix(t, "[]"):
+			return ReturnSlice, strings.TrimPrefix(t, "[]"), false, nil
 		case strings.HasPrefix(t, "*"):
-			return ReturnSingle, strings.TrimPrefix(t, "*"), nil
+			return ReturnSingle, strings.TrimPrefix(t, "*"), true, nil
 		default:
-			return "", "", errors.WithStack(errors.Newf(
-				"unsupported return type %q: expected int, *T, or []*T", t))
+			return "", "", false, errors.WithStack(errors.Newf(
+				"unsupported return type %q: expected int, *T, []*T, or []T", t))
 		}
 
 	default:
-		return "", "", errors.WithStack(errors.Newf(
+		return "", "", false, errors.WithStack(errors.Newf(
 			"unsupported return signature with %d return values", len(types)))
 	}
 }

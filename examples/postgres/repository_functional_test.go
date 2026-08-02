@@ -150,6 +150,22 @@ func TestPostgres_SelectColumns(t *testing.T) {
 	require.Equal(t, "Alice", rows[0].Name)
 }
 
+// TestPostgres_FindAllValues exercises the ([]T, error) return shape — a slice of values,
+// as opposed to FindAll's []*User — to confirm both ReturnSlice variants work against a
+// real database, not just that they compile.
+func TestPostgres_FindAllValues(t *testing.T) {
+	ctx := context.Background()
+	db, _, r := newPostgresRepo(t)
+	seedPostgresUser(t, db, "Alice", true)
+	seedPostgresUser(t, db, "Bob", false)
+
+	rows, err := r.FindAllValues(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	require.Equal(t, "Alice", rows[0].Name)
+	require.Equal(t, "Bob", rows[1].Name)
+}
+
 func TestPostgres_Create(t *testing.T) {
 	ctx := context.Background()
 	_, _, r := newPostgresRepo(t)

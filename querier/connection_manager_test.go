@@ -62,6 +62,47 @@ func TestConnectionManager_StartTransaction_RollsBackOnCallbackError(t *testing.
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestConnectionManager_StartTransaction_RollsBackOnPanic verifies that a panicking
+// callback still rolls back the transaction (instead of leaving it open) and that the
+// panic itself is repropagated to the caller rather than swallowed.
+func TestConnectionManager_StartTransaction_RollsBackOnPanic(t *testing.T) {
+	cm, mock := newMockConnectionManager(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(".*").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectRollback()
+
+	boom := "boom"
+	require.PanicsWithValue(t, boom, func() {
+		_ = cm.StartTransaction(context.Background(), func(ctx context.Context) error {
+			_, err := cm.DB(ctx).ExecContext(ctx, "INSERT INTO t VALUES (1)")
+			require.NoError(t, err)
+			panic(boom)
+		})
+	})
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestConnectionManager_StartTransaction_NestedPanicRollsBackOuterTx verifies that a
+// panic from a nested StartTransaction call still rolls back the one real transaction
+// owned by the outermost call.
+func TestConnectionManager_StartTransaction_NestedPanicRollsBackOuterTx(t *testing.T) {
+	cm, mock := newMockConnectionManager(t)
+
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	boom := "boom"
+	require.PanicsWithValue(t, boom, func() {
+		_ = cm.StartTransaction(context.Background(), func(ctx context.Context) error {
+			return cm.StartTransaction(ctx, func(ctx context.Context) error {
+				panic(boom)
+			})
+		})
+	})
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestConnectionManager_StartTransaction_RollsBackOnBeginError(t *testing.T) {
 	cm, mock := newMockConnectionManager(t)
 

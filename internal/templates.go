@@ -49,15 +49,18 @@ func (s *{{.StructName}}) {{.MethodName}}({{paramList .Params}}) (*{{.ReturnType
 }
 `))
 
+// selectManyTmpl renders []*T or []T depending on ReturnIsPtr; querier.ScanRows determines
+// which one it was scanning into via reflection on _result's declared element type, so no
+// other part of this template needs to change between the two.
 var selectManyTmpl = template.Must(template.New("selectMany").Funcs(helperFuncs).Parse(`
-func (s *{{.StructName}}) {{.MethodName}}({{paramList .Params}}) ([]*{{.ReturnType}}, error) {
+func (s *{{.StructName}}) {{.MethodName}}({{paramList .Params}}) ([]{{if .ReturnIsPtr}}*{{end}}{{.ReturnType}}, error) {
 {{.QueryBody}}
 	_db := s.cm.DB({{.ContextExpr}})
 	_rows, _err := _db.QueryContext({{.ContextExpr}}, _query, _args...)
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
-	var _result []*{{.ReturnType}}
+	var _result []{{if .ReturnIsPtr}}*{{end}}{{.ReturnType}}
 	_err = querier.ScanRows(_rows, &_result)
 	if _err != nil {
 		return nil, errors.WithStack(_err)

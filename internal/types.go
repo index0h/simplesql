@@ -30,12 +30,13 @@ const (
 
 // Method holds everything the generator needs about one interface method.
 type Method struct {
-	Name       string
-	SQL        string // raw SQL template text extracted from comments
-	QueryKind  QueryKind
-	Params     []Param
-	ReturnKind ReturnKind
-	ReturnType string // element type for single/slice, e.g. "User", "*User"
+	Name        string
+	SQL         string // raw SQL template text extracted from comments
+	QueryKind   QueryKind
+	Params      []Param
+	ReturnKind  ReturnKind
+	ReturnType  string // element type for single/slice, e.g. "User" (the "*"/"[]" markers are stripped)
+	ReturnIsPtr bool   // for ReturnSlice: true for []*T, false for []T. Always true for ReturnSingle (*T is the only supported shape).
 }
 
 // Interface holds the parsed interface.

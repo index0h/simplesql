@@ -30,9 +30,12 @@ func (cm *ConnectionManager) DB(ctx context.Context) Querier {
 }
 
 // StartTransaction begins a transaction, calls cb with a context carrying the
-// transaction, then commits on success or rolls back on error.
+// transaction, then commits on success or rolls back on error. If cb panics, the
+// transaction is rolled back before the panic is repropagated, so a panicking
+// callback never leaves the transaction open.
 // If ctx already carries a transaction, cb is called directly without starting
-// a new one, making nested calls safe.
+// a new one, making nested calls safe; the panic/rollback handling above only
+// applies at the outermost call, which is the one that actually owns tx.
 func (cm *ConnectionManager) StartTransaction(ctx context.Context, cb func(ctx context.Context) error) error {
 	_, ok := ctx.Value(txContextKey{}).(*sql.Tx)
 	if ok {
@@ -44,10 +47,22 @@ func (cm *ConnectionManager) StartTransaction(ctx context.Context, cb func(ctx c
 		return errors.Wrap(err, "begin transaction")
 	}
 
-	err = cb(context.WithValue(ctx, txContextKey{}, tx))
+	err = runInTransaction(ctx, tx, cb)
 	if err != nil {
 		return errors.CombineErrors(err, tx.Rollback())
 	}
 
 	return errors.WithStack(tx.Commit())
+}
+
+// runInTransaction calls cb with ctx carrying tx, rolling back tx and repropagating
+// the panic if cb panics.
+func runInTransaction(ctx context.Context, tx *sql.Tx, cb func(ctx context.Context) error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			_ = tx.Rollback()
+			panic(r)
+		}
+	}()
+	return cb(context.WithValue(ctx, txContextKey{}, tx))
 }
