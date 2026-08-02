@@ -19,7 +19,7 @@ func NewUserRepository(cm *querier.ConnectionManager) *userRepositoryImpl {
 	return &userRepositoryImpl{cm: cm}
 }
 
-func (s *userRepositoryImpl) FindById(ctx context.Context, id int) (*User, error) {
+func (s *userRepositoryImpl) FindById(ctx context.Context, id int) (_ *User, _err error) {
 	var _sb strings.Builder
 	var _args []any
 	_sb.WriteString("SELECT u.id, u.name, u.enabled FROM users u\nLEFT JOIN balances b ON b.user_id = u.id\nWHERE u.id = ")
@@ -36,12 +36,17 @@ func (s *userRepositoryImpl) FindById(ctx context.Context, id int) (*User, error
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
-	defer _rows.Close()
+	defer func() {
+		_err = errors.Join(_err, _rows.Close())
+	}()
 	_cols, _err := _rows.Columns()
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
 	if !_rows.Next() {
+		if _err := _rows.Err(); _err != nil {
+			return nil, errors.WithStack(_err)
+		}
 		return nil, nil
 	}
 	var _dest User
@@ -201,7 +206,7 @@ func (s *userRepositoryImpl) Rename(ctx context.Context, id int, name string) er
 	return errors.WithStack(_err)
 }
 
-func (s *userRepositoryImpl) FindByIdSync(id int) (*User, error) {
+func (s *userRepositoryImpl) FindByIdSync(id int) (_ *User, _err error) {
 	var _sb strings.Builder
 	var _args []any
 	_sb.WriteString("SELECT * FROM users WHERE id = ")
@@ -214,12 +219,17 @@ func (s *userRepositoryImpl) FindByIdSync(id int) (*User, error) {
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
-	defer _rows.Close()
+	defer func() {
+		_err = errors.Join(_err, _rows.Close())
+	}()
 	_cols, _err := _rows.Columns()
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
 	if !_rows.Next() {
+		if _err := _rows.Err(); _err != nil {
+			return nil, errors.WithStack(_err)
+		}
 		return nil, nil
 	}
 	var _dest User
@@ -234,7 +244,7 @@ func (s *userRepositoryImpl) FindByIdSync(id int) (*User, error) {
 	return &_dest, nil
 }
 
-func (s *userRepositoryImpl) FindWithBalance(ctx context.Context, id int) (*UserBalance, error) {
+func (s *userRepositoryImpl) FindWithBalance(ctx context.Context, id int) (_ *UserBalance, _err error) {
 	var _sb strings.Builder
 	var _args []any
 	_sb.WriteString("SELECT u.id, u.name, u.enabled, b.user_id, b.amount FROM users u\nINNER JOIN balances b ON b.user_id = u.id\nWHERE u.id = ")
@@ -247,12 +257,17 @@ func (s *userRepositoryImpl) FindWithBalance(ctx context.Context, id int) (*User
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
-	defer _rows.Close()
+	defer func() {
+		_err = errors.Join(_err, _rows.Close())
+	}()
 	_cols, _err := _rows.Columns()
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
 	if !_rows.Next() {
+		if _err := _rows.Err(); _err != nil {
+			return nil, errors.WithStack(_err)
+		}
 		return nil, nil
 	}
 	var _dest UserBalance
