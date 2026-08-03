@@ -65,13 +65,21 @@ simplesql simplesql.yaml
 **4. Use the generated code**
 
 ```go
-db, _ := sql.Open("mysql", dsn)
-cm := simplesql.NewConnectionManager(db)
-repo := repo.NewUserRepository(cm)
+package main
 
-user, err := repo.FindById(ctx, 42)
-users, err := repo.FindAll(ctx, nil)
-id, err := repo.Create(ctx, "Alice", true)
+import "github.com/index0h/simplesql/simplesql"
+
+func main() {
+    // ...
+    db, _ := sql.Open("mysql", dsn)
+    cm := simplesql.NewConnectionManager(db)
+    repo := repo.NewUserRepository(cm)
+    
+    user, err := repo.FindById(ctx, 42)
+    users, err := repo.FindAll(ctx, nil)
+    id, err := repo.Create(ctx, "Alice", true)
+	//...
+}
 ```
 
 The same `cm` also drives transactions — see [Transactions](#transactions) below.
