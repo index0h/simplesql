@@ -65,24 +65,35 @@ assumes the primary key column is named `id`; there's no per-method way to confi
 ## Package structure
 
 ```
-cmd/simplesql/       CLI entrypoint — loads config, calls parser + generator
-internal/config/     YAML config loading (dialect, repositories map) via go.uber.org/config
-db/parser/           Go AST parser — reads interfaces and extracts method comments as SQL
-db/generator/        Code generator — renders Go source from parsed interfaces
-db/simplesql/          Public package: Querier interface + ScanRows/FieldPointers used by generated code
+cmd/simplesql/    CLI entrypoint (main.go) — loads config, wires Reader/Parser/Compiler/Generator/Runner, calls Run()
+internal/         Everything the CLI needs: config loading, AST parsing, SQL-template compiling, code generation,
+                  and the Runner that ties them together — all one flat `internal` package (no sub-packages)
+simplesql/        Public package imported by generated code: Querier interface, ConnectionManager
+                  (transaction-aware DB/Tx routing), and ScanRows/FieldPointers (reflection-based row scanning)
+examples/         Worked reference and functional test suite: the same UserRepository interface generated for
+                  mysql/postgres/sqlite, each with its own repository_gen.go and Docker-backed tests
 ```
 
-`internal/config` is only used by the CLI. Generated code imports only `simplesql`.
+Generated code imports only `simplesql` (never `internal` — Go's `internal/` visibility rule wouldn't allow an
+outside module to anyway). There is no `internal/config`, `db/parser`, or `db/generator` sub-package; despite the
+names in some constructor/type references below reading as if `parser`/`generator` were separate packages, they're
+all just identifiers within the single `internal` package (e.g. `Parser`, `Compiler`, `Generator` are types in
+`internal`, not `parser.Parser`/`generator.Compiler`).
 
 ## Architecture
 
-All three main services are stateless structs with constructor functions:
+All main services in `internal` are stateless structs with constructor functions:
 
-- `parser.Parser` — constructed with `NewParser(log)`, entry point is `ParseInterface(dir, ifaceName)`
-- `generator.Compiler` — constructed with `NewCompiler(dialect)`, entry point is `CompileBody(method)`
-- `generator.Generator` — constructed with `NewGenerator(dialect, log)`, entry point is
-  `Generate(packageName, requests)`
-- `generator.Tokenizer` — constructed with `NewTokenizer()`, used internally by `Compiler`
+- `Parser` — constructed with `NewParser(log, reader)`, entry point is `ParseInterface(dir, ifaceName)`
+- `Reader` — constructed with `NewReader(log)`, reads and AST-parses all `.go` files in a directory; used by `Parser`
+- `Compiler` — constructed with `NewCompiler(dialect)`, entry point is `CompileBody(method)`; also exposes
+  `Dialect()` so `Generator` can pick a dialect-specific method template
+- `Generator` — constructed with `NewGenerator(log, compiler)`, entry point is `Generate(packageName, requests)`
+- `Tokenizer` — constructed with `NewTokenizer()`, used internally by `Compiler`
+- `Runner` — constructed with `NewRunner(parser, generator, cfg, cfgPath, log)`, entry point is `Run()`; orchestrates
+  the other four over every repository in the config and writes the generated files
+- `Load(path)` (`generator_config.go`) — loads and validates `*Config` from the YAML config file; not a
+  constructor/service, just a function
 
 Logging uses `go.uber.org/zap` (passed into constructors). Config uses `go.uber.org/config`.
 
@@ -106,7 +117,9 @@ Logging uses `go.uber.org/zap` (passed into constructors). Config uses `go.uber.
 - `{{if <go-expr>}}...{{else if <go-expr>}}...{{else}}...{{end}}` — conditional block; the expression is emitted
   verbatim into the generated `if` statement
 
-The template uses a custom lexer (`db/generator/tokenizer.go`) — not `text/template`. Expressions in `{{if ...}}` are
+The `@sql` template syntax (`{{if}}`, `:param`, etc.) is parsed by a custom lexer (`internal/tokenizer.go`), not
+`text/template` — that's a separate, unrelated use of Go's `text/template` package for rendering the *output* Go
+source in `internal/templates.go`. Expressions in `{{if ...}}` are
 passed straight through to Go, so full Go syntax works: `enabled != nil`, `count > 0`, `enabled != nil && *enabled`,
 etc.
 
