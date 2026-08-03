@@ -14,7 +14,7 @@ type Balance struct {
 }
 
 // UserBalance is a join result: the struct embeds two entities, and each is scanned
-// from its own set of columns via querier.FieldPointers' embedded-field flattening.
+// from its own set of columns via simplesql.FieldPointers' embedded-field flattening.
 type UserBalance struct {
 	User
 	Balance
@@ -65,7 +65,7 @@ type UserRepository interface {
 	FindByIdSync(id int) (*User, error)
 
 	// FindWithBalance joins users and balances into a single result struct that embeds
-	// both entities. Demonstrates single-row scanning (querier.FieldPointers) into a
+	// both entities. Demonstrates single-row scanning (simplesql.FieldPointers) into a
 	// struct{ User; Balance }.
 	// @sql SELECT u.id, u.name, u.enabled, b.user_id, b.amount FROM users u
 	// INNER JOIN balances b ON b.user_id = u.id
@@ -73,7 +73,7 @@ type UserRepository interface {
 	FindWithBalance(ctx context.Context, id int) (*UserBalance, error)
 
 	// ListWithBalances joins users and balances into a slice of the embedded result
-	// struct. Demonstrates multi-row scanning (querier.ScanRows) into a struct{ User; Balance }.
+	// struct. Demonstrates multi-row scanning (simplesql.ScanRows) into a struct{ User; Balance }.
 	// @sql SELECT u.id, u.name, u.enabled, b.user_id, b.amount FROM users u
 	// INNER JOIN balances b ON b.user_id = u.id
 	// ORDER BY u.id

@@ -50,9 +50,9 @@ root provisions MySQL and Postgres (schemas auto-applied from `examples/schema/*
 tag, since they require the containers to be running. After editing `examples/*/repository.go`, regenerate with
 `go run ./cmd/simplesql examples/<dialect>/config.yaml`.
 
-`querier.FieldPointers`/`ScanRows` (`querier/scan.go`) flatten anonymous embedded struct fields recursively when
+`simplesql.FieldPointers`/`ScanRows` (`simplesql/scan.go`) flatten anonymous embedded struct fields recursively when
 building the column → field index, so a join's result struct can embed each joined entity directly instead of
-needing one flat struct with all columns redeclared. See `querier/scan_test.go` for the reflection-level unit tests.
+needing one flat struct with all columns redeclared. See `simplesql/scan_test.go` for the reflection-level unit tests.
 
 Postgres has no `LastInsertId()` equivalent (`pgx`/`lib/pq` both error on it — there's no wire-protocol call for it,
 only a `RETURNING` clause), so an `INSERT` method with a `(int, error)` return compiles differently under
@@ -65,24 +65,35 @@ assumes the primary key column is named `id`; there's no per-method way to confi
 ## Package structure
 
 ```
-cmd/simplesql/       CLI entrypoint — loads config, calls parser + generator
-internal/config/     YAML config loading (dialect, repositories map) via go.uber.org/config
-db/parser/           Go AST parser — reads interfaces and extracts method comments as SQL
-db/generator/        Code generator — renders Go source from parsed interfaces
-db/querier/          Public package: Querier interface + ScanRows/FieldPointers used by generated code
+cmd/simplesql/    CLI entrypoint (main.go) — loads config, wires Reader/Parser/Compiler/Generator/Runner, calls Run()
+internal/         Everything the CLI needs: config loading, AST parsing, SQL-template compiling, code generation,
+                  and the Runner that ties them together — all one flat `internal` package (no sub-packages)
+simplesql/        Public package imported by generated code: Querier interface, ConnectionManager
+                  (transaction-aware DB/Tx routing), and ScanRows/FieldPointers (reflection-based row scanning)
+examples/         Worked reference and functional test suite: the same UserRepository interface generated for
+                  mysql/postgres/sqlite, each with its own repository_gen.go and Docker-backed tests
 ```
 
-`internal/config` is only used by the CLI. Generated code imports only `querier`.
+Generated code imports only `simplesql` (never `internal` — Go's `internal/` visibility rule wouldn't allow an
+outside module to anyway). There is no `internal/config`, `db/parser`, or `db/generator` sub-package; despite the
+names in some constructor/type references below reading as if `parser`/`generator` were separate packages, they're
+all just identifiers within the single `internal` package (e.g. `Parser`, `Compiler`, `Generator` are types in
+`internal`, not `parser.Parser`/`generator.Compiler`).
 
 ## Architecture
 
-All three main services are stateless structs with constructor functions:
+All main services in `internal` are stateless structs with constructor functions:
 
-- `parser.Parser` — constructed with `NewParser(log)`, entry point is `ParseInterface(dir, ifaceName)`
-- `generator.Compiler` — constructed with `NewCompiler(dialect)`, entry point is `CompileBody(method)`
-- `generator.Generator` — constructed with `NewGenerator(dialect, log)`, entry point is
-  `Generate(packageName, requests)`
-- `generator.Tokenizer` — constructed with `NewTokenizer()`, used internally by `Compiler`
+- `Parser` — constructed with `NewParser(log, reader)`, entry point is `ParseInterface(dir, ifaceName)`
+- `Reader` — constructed with `NewReader(log)`, reads and AST-parses all `.go` files in a directory; used by `Parser`
+- `Compiler` — constructed with `NewCompiler(dialect)`, entry point is `CompileBody(method)`; also exposes
+  `Dialect()` so `Generator` can pick a dialect-specific method template
+- `Generator` — constructed with `NewGenerator(log, compiler)`, entry point is `Generate(packageName, requests)`
+- `Tokenizer` — constructed with `NewTokenizer()`, used internally by `Compiler`
+- `Runner` — constructed with `NewRunner(parser, generator, cfg, cfgPath, log)`, entry point is `Run()`; orchestrates
+  the other four over every repository in the config and writes the generated files
+- `Load(path)` (`generator_config.go`) — loads and validates `*Config` from the YAML config file; not a
+  constructor/service, just a function
 
 Logging uses `go.uber.org/zap` (passed into constructors). Config uses `go.uber.org/config`.
 
@@ -106,7 +117,9 @@ Logging uses `go.uber.org/zap` (passed into constructors). Config uses `go.uber.
 - `{{if <go-expr>}}...{{else if <go-expr>}}...{{else}}...{{end}}` — conditional block; the expression is emitted
   verbatim into the generated `if` statement
 
-The template uses a custom lexer (`db/generator/tokenizer.go`) — not `text/template`. Expressions in `{{if ...}}` are
+The `@sql` template syntax (`{{if}}`, `:param`, etc.) is parsed by a custom lexer (`internal/tokenizer.go`), not
+`text/template` — that's a separate, unrelated use of Go's `text/template` package for rendering the *output* Go
+source in `internal/templates.go`. Expressions in `{{if ...}}` are
 passed straight through to Go, so full Go syntax works: `enabled != nil`, `count > 0`, `enabled != nil && *enabled`,
 etc.
 
@@ -123,7 +136,7 @@ etc.
 
 `ReturnSlice` accepts both a slice of pointers (`[]*T`) and a slice of values (`[]T`) — `Method.ReturnIsPtr` (set in
 `parser.go`'s `buildReturn`) records which one the interface declared, and `selectManyTmpl` in `templates.go` renders
-`[]*T`/`[]T` accordingly (`{{if .ReturnIsPtr}}*{{end}}`); `querier.ScanRows` already handled both variants via
+`[]*T`/`[]T` accordingly (`{{if .ReturnIsPtr}}*{{end}}`); `simplesql.ScanRows` already handled both variants via
 reflection before this, it's only the parser/template that were pointer-only. `ReturnSingle` (`*T`) has no such value
 counterpart — it's pointer-only, since there'd be no sensible zero value to return for "no row found".
 
@@ -151,7 +164,7 @@ processes repository keys in sorted order so the generated file's struct/method 
 
 ## Generated code details
 
-- Accepts `*querier.ConnectionManager` in the constructor. Every method calls `cm.DB(ctx)` for its `querier.Querier`,
+- Accepts `*simplesql.ConnectionManager` in the constructor. Every method calls `cm.DB(ctx)` for its `simplesql.Querier`,
   which resolves to whichever `*sql.Tx` (if any) `ctx` carries, else the wrapped `*sql.DB` — so one repository
   instance works both inside and outside a transaction
 - If the first parameter is `context.Context` it is forwarded to `QueryContext`/`ExecContext`; otherwise
@@ -159,13 +172,13 @@ processes repository keys in sorted order so the generated file's struct/method 
 - All DB errors are wrapped with `errors.WithStack` from `github.com/cockroachdb/errors`
 - `sql.Rows.Close()`'s error is never silently discarded: `ReturnSingle` methods use a named `_err` return (all
   generated identifiers are `_`-prefixed to avoid colliding with anything meaningful — a named return is no
-  exception) with a deferred `_err = errors.Join(_err, _rows.Close())`, and `querier.ScanRows` (used by `ReturnSlice`
+  exception) with a deferred `_err = errors.Join(_err, _rows.Close())`, and `simplesql.ScanRows` (used by `ReturnSlice`
   methods) does the same internally with its own `err` — a `Close()` failure surfaces (joined onto any earlier
   error) instead of vanishing via a bare `defer rows.Close()`. Note this is `errors.Join` (real multi-error,
   `Unwrap() []error`), not `errors.CombineErrors` — the latter attaches the second error as a "secondary" that's
   invisible to both `Error()` and `errors.Is`/`As`, which silently defeats the whole point of not discarding it.
-- Result structs are scanned by `db` struct tag via `querier.FieldPointers`, which validates `dest` (non-nil pointer
-  to struct) and returns an error rather than panicking on bad input; `querier.ScanRows` does the same for its
+- Result structs are scanned by `db` struct tag via `simplesql.FieldPointers`, which validates `dest` (non-nil pointer
+  to struct) and returns an error rather than panicking on bad input; `simplesql.ScanRows` does the same for its
   `*[]T`/`*[]*T` destination
 - A `ReturnSingle` method (`selectOneTmpl`) checks `_rows.Err()` when `_rows.Next()` returns false, so a genuine
   rows-iteration error isn't mistaken for "no row found" and silently turned into `(nil, nil)`
@@ -174,10 +187,10 @@ processes repository keys in sorted order so the generated file's struct/method 
   won't match the imported package's own default name, dropping it would make the generated file fail to compile
 - Output is passed through `go/format` so it is always gofmt-clean
 
-`ConnectionManager.StartTransaction` (`querier/connection_manager.go`) commits on a `nil` callback return, rolls back
+`ConnectionManager.StartTransaction` (`simplesql/connection_manager.go`) commits on a `nil` callback return, rolls back
 and returns `errors.Join(cbErr, tx.Rollback())` otherwise (so a `Rollback()` failure stays discoverable alongside the
 callback error, not hidden behind it), is reentrant (a nested call reuses ctx's existing `*sql.Tx` instead of
 starting a second one — only the outermost call owns `tx` and its commit/rollback), and rolls back before
 repropagating if the callback panics, so a panicking callback can't leave the transaction open. See
-`querier/connection_manager_test.go` for the sqlmock-backed tests covering each of these paths, including the
+`simplesql/connection_manager_test.go` for the sqlmock-backed tests covering each of these paths, including the
 two-errors-at-once case that distinguishes `errors.Join` from `errors.CombineErrors`.

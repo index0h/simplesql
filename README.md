@@ -65,13 +65,21 @@ simplesql simplesql.yaml
 **4. Use the generated code**
 
 ```go
-db, _ := sql.Open("mysql", dsn)
-cm := querier.NewConnectionManager(db)
-repo := repo.NewUserRepository(cm)
+package main
 
-user, err := repo.FindById(ctx, 42)
-users, err := repo.FindAll(ctx, nil)
-id, err := repo.Create(ctx, "Alice", true)
+import "github.com/index0h/simplesql/simplesql"
+
+func main() {
+    // ...
+    db, _ := sql.Open("mysql", dsn)
+    cm := simplesql.NewConnectionManager(db)
+    repo := repo.NewUserRepository(cm)
+    
+    user, err := repo.FindById(ctx, 42)
+    users, err := repo.FindAll(ctx, nil)
+    id, err := repo.Create(ctx, "Alice", true)
+	//...
+}
 ```
 
 The same `cm` also drives transactions — see [Transactions](#transactions) below.
@@ -226,8 +234,8 @@ All errors returned from the database are wrapped with `errors.WithStack` from `
 
 ## Transactions
 
-The generated constructor takes a `*querier.ConnectionManager`, not a `*sql.DB`/`*sql.Tx` directly. Every generated
-method calls `cm.DB(ctx)` to get its `querier.Querier`, which resolves to whichever transaction (if any) `ctx`
+The generated constructor takes a `*simplesql.ConnectionManager`, not a `*sql.DB`/`*sql.Tx` directly. Every generated
+method calls `cm.DB(ctx)` to get its `simplesql.Querier`, which resolves to whichever transaction (if any) `ctx`
 carries — so the same repository instance transparently works both inside and outside a transaction, with no need to
 construct a second instance around a `*sql.Tx`.
 
@@ -235,7 +243,7 @@ Transactions are started through `cm.StartTransaction`, which commits if the cal
 (returning the combined error) otherwise:
 
 ```go
-cm := querier.NewConnectionManager(db)
+cm := simplesql.NewConnectionManager(db)
 repo := repo.NewUserRepository(cm)
 
 err := cm.StartTransaction(ctx, func(ctx context.Context) error {

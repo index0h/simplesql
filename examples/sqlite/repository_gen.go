@@ -7,14 +7,14 @@ import (
 	"strings"
 
 	"github.com/cockroachdb/errors"
-	"github.com/index0h/simplesql/querier"
+	"github.com/index0h/simplesql/simplesql"
 )
 
 type userRepositoryImpl struct {
-	cm *querier.ConnectionManager
+	cm *simplesql.ConnectionManager
 }
 
-func NewUserRepository(cm *querier.ConnectionManager) *userRepositoryImpl {
+func NewUserRepository(cm *simplesql.ConnectionManager) *userRepositoryImpl {
 	return &userRepositoryImpl{cm: cm}
 }
 
@@ -47,7 +47,7 @@ func (s *userRepositoryImpl) FindById(ctx context.Context, id int) (_ *User, _er
 		return nil, nil
 	}
 	var _dest User
-	_ptrs, _err := querier.FieldPointers(&_dest, _cols)
+	_ptrs, _err := simplesql.FieldPointers(&_dest, _cols)
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
@@ -81,7 +81,7 @@ func (s *userRepositoryImpl) FindAll(ctx context.Context, enabled *bool, minId *
 		return nil, errors.WithStack(_err)
 	}
 	var _result []*User
-	_err = querier.ScanRows(_rows, &_result)
+	_err = simplesql.ScanRows(_rows, &_result)
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
@@ -102,7 +102,7 @@ func (s *userRepositoryImpl) SelectColumns(ctx context.Context, cols string) ([]
 		return nil, errors.WithStack(_err)
 	}
 	var _result []*User
-	_err = querier.ScanRows(_rows, &_result)
+	_err = simplesql.ScanRows(_rows, &_result)
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
@@ -121,7 +121,7 @@ func (s *userRepositoryImpl) FindAllValues(ctx context.Context) ([]User, error) 
 		return nil, errors.WithStack(_err)
 	}
 	var _result []User
-	_err = querier.ScanRows(_rows, &_result)
+	_err = simplesql.ScanRows(_rows, &_result)
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
@@ -217,7 +217,7 @@ func (s *userRepositoryImpl) FindByIdSync(id int) (_ *User, _err error) {
 		return nil, nil
 	}
 	var _dest User
-	_ptrs, _err := querier.FieldPointers(&_dest, _cols)
+	_ptrs, _err := simplesql.FieldPointers(&_dest, _cols)
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
@@ -254,7 +254,7 @@ func (s *userRepositoryImpl) FindWithBalance(ctx context.Context, id int) (_ *Us
 		return nil, nil
 	}
 	var _dest UserBalance
-	_ptrs, _err := querier.FieldPointers(&_dest, _cols)
+	_ptrs, _err := simplesql.FieldPointers(&_dest, _cols)
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
@@ -277,7 +277,7 @@ func (s *userRepositoryImpl) ListWithBalances(ctx context.Context) ([]*UserBalan
 		return nil, errors.WithStack(_err)
 	}
 	var _result []*UserBalance
-	_err = querier.ScanRows(_rows, &_result)
+	_err = simplesql.ScanRows(_rows, &_result)
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}

@@ -12,7 +12,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/require"
 
-	"github.com/index0h/simplesql/querier"
+	"github.com/index0h/simplesql/simplesql"
 )
 
 func mysqlDSN() string {
@@ -25,7 +25,7 @@ func mysqlDSN() string {
 // newMySQLRepo opens a fresh connection, truncates the fixture tables and returns
 // the raw *sql.DB (for seeding/assertions), its ConnectionManager (for transaction
 // tests) and the generated repository.
-func newMySQLRepo(t *testing.T) (*sql.DB, *querier.ConnectionManager, UserRepository) {
+func newMySQLRepo(t *testing.T) (*sql.DB, *simplesql.ConnectionManager, UserRepository) {
 	t.Helper()
 
 	db, err := sql.Open("mysql", mysqlDSN())
@@ -38,7 +38,7 @@ func newMySQLRepo(t *testing.T) (*sql.DB, *querier.ConnectionManager, UserReposi
 	_, err = db.Exec("DELETE FROM users")
 	require.NoError(t, err)
 
-	cm := querier.NewConnectionManager(db)
+	cm := simplesql.NewConnectionManager(db)
 	return db, cm, NewUserRepository(cm)
 }
 

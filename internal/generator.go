@@ -167,10 +167,10 @@ func (g *generatorImpl) extractContext(params []Param) (ctxExpr string, sqlParam
 // Stdlib imports come first, then a blank line, then external imports.
 func (g *generatorImpl) buildImportBlock(requests []*Request, needsStrconv bool) string {
 	set := map[Import]struct{}{
-		{Path: "context"}:                              {},
-		{Path: "strings"}:                              {},
-		{Path: "github.com/cockroachdb/errors"}:        {},
-		{Path: "github.com/index0h/simplesql/querier"}: {},
+		{Path: "context"}:                                {},
+		{Path: "strings"}:                                {},
+		{Path: "github.com/cockroachdb/errors"}:          {},
+		{Path: "github.com/index0h/simplesql/simplesql"}: {},
 	}
 	if needsStrconv {
 		set[Import{Path: "strconv"}] = struct{}{}
