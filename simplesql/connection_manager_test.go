@@ -1,4 +1,4 @@
-package querier
+package simplesql
 
 import (
 	"context"

@@ -474,8 +474,8 @@ func TestGenerate_MySQL_FullInterface(t *testing.T) {
 
 	assertContainsStr(t, string(src),
 		"package repo",
-		"cm *querier.ConnectionManager",
-		"func NewUserRepository(cm *querier.ConnectionManager)",
+		"cm *simplesql.ConnectionManager",
+		"func NewUserRepository(cm *simplesql.ConnectionManager)",
 		"func (s *userRepositoryImpl) FindById(",
 		"func (s *userRepositoryImpl) FindAll(",
 		"func (s *userRepositoryImpl) Create(",

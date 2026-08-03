@@ -15,13 +15,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/index0h/simplesql/querier"
+	"github.com/index0h/simplesql/simplesql"
 )
 
 // newSQLiteRepo creates a fresh on-disk SQLite database (SQLite has no server to
 // dockerize, so unlike mysql/postgres this fixture is created in-process), applies
 // the schema and returns the *sql.DB, its ConnectionManager and the generated repository.
-func newSQLiteRepo(t *testing.T) (*sql.DB, *querier.ConnectionManager, UserRepository) {
+func newSQLiteRepo(t *testing.T) (*sql.DB, *simplesql.ConnectionManager, UserRepository) {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "functional.db")
@@ -43,7 +43,7 @@ func newSQLiteRepo(t *testing.T) (*sql.DB, *querier.ConnectionManager, UserRepos
 		require.NoError(t, err)
 	}
 
-	cm := querier.NewConnectionManager(db)
+	cm := simplesql.NewConnectionManager(db)
 	return db, cm, NewUserRepository(cm)
 }
 

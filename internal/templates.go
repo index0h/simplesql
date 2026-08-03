@@ -12,10 +12,10 @@ import (
 
 var structTmpl = template.Must(template.New("struct").Parse(`
 type {{.StructName}} struct {
-	cm *querier.ConnectionManager
+	cm *simplesql.ConnectionManager
 }
 
-func New{{.InterfaceName}}(cm *querier.ConnectionManager) *{{.StructName}} {
+func New{{.InterfaceName}}(cm *simplesql.ConnectionManager) *{{.StructName}} {
 	return &{{.StructName}}{cm: cm}
 }
 `))
@@ -47,7 +47,7 @@ func (s *{{.StructName}}) {{.MethodName}}({{paramList .Params}}) (_ *{{.ReturnTy
 		return nil, nil
 	}
 	var _dest {{.ReturnType}}
-	_ptrs, _err := querier.FieldPointers(&_dest, _cols)
+	_ptrs, _err := simplesql.FieldPointers(&_dest, _cols)
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
@@ -59,7 +59,7 @@ func (s *{{.StructName}}) {{.MethodName}}({{paramList .Params}}) (_ *{{.ReturnTy
 }
 `))
 
-// selectManyTmpl renders []*T or []T depending on ReturnIsPtr; querier.ScanRows determines
+// selectManyTmpl renders []*T or []T depending on ReturnIsPtr; simplesql.ScanRows determines
 // which one it was scanning into via reflection on _result's declared element type, so no
 // other part of this template needs to change between the two.
 var selectManyTmpl = template.Must(template.New("selectMany").Funcs(helperFuncs).Parse(`
@@ -71,7 +71,7 @@ func (s *{{.StructName}}) {{.MethodName}}({{paramList .Params}}) ([]{{if .Return
 		return nil, errors.WithStack(_err)
 	}
 	var _result []{{if .ReturnIsPtr}}*{{end}}{{.ReturnType}}
-	_err = querier.ScanRows(_rows, &_result)
+	_err = simplesql.ScanRows(_rows, &_result)
 	if _err != nil {
 		return nil, errors.WithStack(_err)
 	}
